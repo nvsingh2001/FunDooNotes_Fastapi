@@ -1,39 +1,52 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.logger import get_logger
-from app.schemas import LabelCreate, LabelResponse, LabelUpdate
+from app.auth import get_current_user
+from app.logger import LoggingMixin
+from app.schemas import LabelCreate, LabelResponse, LabelUpdate, UserResponse
 from app.storage import StorageManager
 
-logger = get_logger()
 
-
-class LabelsRouter:
-    """
-    Registers all /labels endpoints on an APIRouter.
-
-    Instantiate with a StorageManager and read the `.router`
-    attribute to pass into FastAPI's include_router().
-    """
+class LabelsRouter(LoggingMixin):
+    """Registers all /labels endpoints on an APIRouter."""
 
     def __init__(self, storage: StorageManager) -> None:
         self._storage = storage
         self.router = APIRouter()
         self._register_routes()
 
-    def _get_label_or_404(self, label_id: str) -> dict:
-        """Fetch a label by id or raise HTTP 404. Shared by multiple endpoints."""
+    def _get_label_or_404(self, label_id: str, current_user: UserResponse) -> dict:
         label = self._storage.labels.get_by_id(label_id)
         if not label:
-            logger.warning(f"Label not found: id={label_id}")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Label with id '{label_id}' not found.",
             )
+        if label["user_id"] != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to access this label.",
+            )
         return label
 
-    def _register_routes(self) -> None:
-        """Bind all endpoint methods to their paths and HTTP methods."""
+    def _check_name_conflict(
+        self, name: str, user_id: str, exclude_id: str | None = None
+    ) -> None:
+        """Raise 409 if a label with this name (case-insensitive) already exists for the user."""
+        conflict = next(
+            (
+                lb
+                for lb in self._storage.labels.get_all_for_user(user_id)
+                if lb["name"].lower() == name.lower() and lb["id"] != exclude_id
+            ),
+            None,
+        )
+        if conflict:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"A label named '{name}' already exists.",
+            )
 
+    def _register_routes(self) -> None:
         self.router.add_api_route(
             path="/",
             endpoint=self.create_label,
@@ -76,58 +89,53 @@ class LabelsRouter:
             methods=["DELETE"],
             status_code=status.HTTP_204_NO_CONTENT,
             summary="Delete a label",
-            description=(
-                "Permanently delete a label and remove it from all "
-                "notes it was attached to."
-            ),
+            description="Delete a label and detach it from all notes.",
         )
 
-    def create_label(self, payload: LabelCreate) -> dict:
-        existing = [
-            lb
-            for lb in self._storage.labels.get_all()
-            if lb["name"].lower() == payload.name.lower()
-        ]
-        if existing:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"A label named '{payload.name}' already exists.",
-            )
-
-        label = self._storage.labels.create(name=payload.name)
-        logger.info(f"POST /labels/ → created id={label['id']}")
+    def create_label(
+        self,
+        payload: LabelCreate,
+        current_user: UserResponse = Depends(get_current_user),
+    ) -> dict:
+        self._check_name_conflict(payload.name, user_id=current_user.id)
+        label = self._storage.labels.create(user_id=current_user.id, name=payload.name)
+        self.logger.info(f"POST /labels/ → 201 id={label['id']} user={current_user.id}")
         return label
 
-    def get_all_labels(self) -> list[dict]:
-        labels = self._storage.labels.get_all()
-        logger.info(f"GET /labels/ → {len(labels)} labels")
+    def get_all_labels(
+        self, current_user: UserResponse = Depends(get_current_user)
+    ) -> list[dict]:
+        labels = self._storage.labels.get_all_for_user(current_user.id)
+        self.logger.info(f"GET /labels/ → 200 count={len(labels)} user={current_user.id}")
         return labels
 
-    def get_label(self, label_id: str) -> dict:
-        return self._get_label_or_404(label_id)
+    def get_label(
+        self, label_id: str, current_user: UserResponse = Depends(get_current_user)
+    ) -> dict:
+        label = self._get_label_or_404(label_id, current_user)
+        self.logger.info(f"GET /labels/{label_id} → 200 user={current_user.id}")
+        return label
 
-    def update_label(self, label_id: str, payload: LabelUpdate) -> dict:
-        self._get_label_or_404(label_id)  # guard: 404 before attempting update
-
-        existing = [
-            lb
-            for lb in self._storage.labels.get_all()
-            if lb["name"].lower() == payload.name.lower() and lb["id"] != label_id
-        ]
-        if existing:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"A label named '{payload.name}' already exists.",
-            )
-
+    def update_label(
+        self,
+        label_id: str,
+        payload: LabelUpdate,
+        current_user: UserResponse = Depends(get_current_user),
+    ) -> dict:
+        self._get_label_or_404(label_id, current_user)
+        self._check_name_conflict(
+            payload.name, user_id=current_user.id, exclude_id=label_id
+        )
         updated = self._storage.labels.update(label_id, name=payload.name)
-        logger.info(f"PUT /labels/{label_id} → updated")
+        self.logger.info(f"PUT /labels/{label_id} → 200 user={current_user.id}")
         return updated  # type: ignore
 
-    def delete_label(self, label_id: str) -> None:
-        self._get_label_or_404(label_id)  # guard: 404 before attempting delete
+    def delete_label(
+        self, label_id: str, current_user: UserResponse = Depends(get_current_user)
+    ) -> None:
+        self._get_label_or_404(label_id, current_user)
         self._storage.labels.delete(label_id)
-        logger.info(f"DELETE /labels/{label_id} → deleted")
+        self.logger.info(f"DELETE /labels/{label_id} → 204 user={current_user.id}")
 
 
 from app.storage import storage as _storage  # noqa: E402

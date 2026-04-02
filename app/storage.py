@@ -6,19 +6,13 @@ from pathlib import Path
 
 from filelock import FileLock
 
-from app.logger import logger
+from app.logger import LoggingMixin
 
 
-class BaseRepository(ABC):
+class BaseRepository(ABC, LoggingMixin):
     """
     Encapsulates all CSV file I/O for a single entity.
-
-    Subclasses declare:
-        file_path : Path   — where the CSV lives
-        fields    : list   — ordered column names (must match header row)
-
-    All mutating operations follow the same pattern:
-        read-all → mutate-in-memory → write-all (under FileLock)
+    Inherits LoggingMixin so every subclass gets self.logger for free.
     """
 
     file_path: Path
@@ -34,14 +28,12 @@ class BaseRepository(ABC):
         return str(self.file_path) + ".lock"
 
     def _read(self) -> list[dict]:
-        """Load all rows from the CSV into a list of dicts."""
         if not self.file_path.exists():
             return []
         with open(self.file_path, newline="", encoding="utf-8") as f:
             return list(csv.DictReader(f))
 
     def _write(self, rows: list[dict]) -> None:
-        """Overwrite the CSV with the given rows under a file lock."""
         with FileLock(self._lock_path()):
             with open(self.file_path, "w", newline="", encoding="utf-8") as f:
                 writer = csv.DictWriter(f, fieldnames=self.fields)
@@ -49,72 +41,99 @@ class BaseRepository(ABC):
                 writer.writerows(rows)
 
     def _init_file(self) -> None:
-        """Write headers if the CSV does not exist yet."""
-        if not self.file_path.exists():
+        # For this version, we reset data if the headers don't match or file doesn't exist
+        needs_init = not self.file_path.exists()
+        if not needs_init:
+            with open(self.file_path, "r", newline="", encoding="utf-8") as f:
+                reader = csv.reader(f)
+                header = next(reader, None)
+                if header != self.fields:
+                    needs_init = True
+
+        if needs_init:
             with open(self.file_path, "w", newline="", encoding="utf-8") as f:
                 csv.DictWriter(f, fieldnames=self.fields).writeheader()
-            logger.info(f"Initialised: {self.file_path}")
+            self.logger.info(f"Initialised (reset): {self.file_path}")
 
     def get_all(self) -> list[dict]:
         rows = self._read()
-        logger.info(f"{self.__class__.__name__}.get_all → {len(rows)} rows")
+        self.logger.info(f"get_all → {len(rows)} rows")
         return rows
 
     def get_by_id(self, entity_id: str) -> dict | None:
         row = next((r for r in self._read() if r["id"] == entity_id), None)
         if row:
-            logger.info(f"{self.__class__.__name__}.get_by_id({entity_id}) → found")
+            self.logger.info(f"get_by_id({entity_id}) → found")
         else:
-            logger.warning(
-                f"{self.__class__.__name__}.get_by_id({entity_id}) → not found"
-            )
+            self.logger.warning(f"get_by_id({entity_id}) → not found")
         return row
 
     def delete(self, entity_id: str) -> bool:
         rows = self._read()
         new_rows = [r for r in rows if r["id"] != entity_id]
         if len(new_rows) == len(rows):
-            logger.warning(f"{self.__class__.__name__}.delete({entity_id}) → not found")
+            self.logger.warning(f"delete({entity_id}) → not found")
             return False
         self._write(new_rows)
-        self._on_delete(entity_id)  # cascade hook
-        logger.info(f"{self.__class__.__name__}.delete({entity_id}) → ok")
+        self._on_delete(entity_id)
+        self.logger.info(f"delete({entity_id}) → ok")
         return True
 
     def _on_delete(self, entity_id: str) -> None:
-        """Called after a row is deleted. Override for cascade behaviour."""
+        """Override in subclasses for cascade behaviour."""
         pass
 
     @abstractmethod
-    def create(self, **kwargs) -> dict:
-        """Create and persist a new entity. Return the saved dict."""
-        ...
+    def create(self, **kwargs) -> dict: ...
 
     @abstractmethod
+    def update(self, entity_id: str, **kwargs) -> dict | None: ...
+
+
+class UserRepository(BaseRepository):
+    file_path = Path("data/users.csv")
+    fields = ["id", "username", "email", "hashed_password"]
+
+    def create(self, *, username: str, email: str, hashed_password: str) -> dict:  # type: ignore
+        user = {
+            "id": self._new_id(),
+            "username": username,
+            "email": email,
+            "hashed_password": hashed_password,
+        }
+        rows = self._read()
+        rows.append(user)
+        self._write(rows)
+        self.logger.info(f"create → id={user['id']} username='{username}'")
+        return user
+
+    def get_by_username(self, username: str) -> dict | None:
+        return next((r for r in self._read() if r["username"] == username), None)
+
+    def get_by_email(self, email: str) -> dict | None:
+        return next((r for r in self._read() if r["email"] == email), None)
+
     def update(self, entity_id: str, **kwargs) -> dict | None:
-        """Update an entity by id. Return updated dict or None if missing."""
-        ...
+        # Not needed for basic auth implementation
+        return None
 
 
 class NoteRepository(BaseRepository):
-    """Persistence for Note entities."""
-
     file_path = Path("data/notes.csv")
-    fields = ["id", "title", "content", "created_at", "updated_at"]
+    fields = ["id", "user_id", "title", "content", "created_at", "updated_at"]
 
     def __init__(
         self,
         note_label_repo: "NoteLabelRepository",
         label_repo: "LabelRepository",
     ) -> None:
-        # Dependencies injected so the repo can hydrate labels and cascade
-        # deletes without importing globals or coupling to other modules.
         self._note_labels = note_label_repo
         self._labels = label_repo
 
-    def create(self, *, title: str, content: str) -> dict:  # type: ignore
+    def create(self, *, user_id: str, title: str, content: str) -> dict:  # type: ignore
         note = {
             "id": self._new_id(),
+            "user_id": user_id,
             "title": title,
             "content": content,
             "created_at": self._now(),
@@ -123,7 +142,7 @@ class NoteRepository(BaseRepository):
         rows = self._read()
         rows.append(note)
         self._write(rows)
-        logger.info(f"NoteRepository.create → id={note['id']}")
+        self.logger.info(f"create → id={note['id']} title='{title}' user_id='{user_id}'")
         return self._hydrate(note)
 
     def update(  # type: ignore
@@ -138,47 +157,46 @@ class NoteRepository(BaseRepository):
                     row["content"] = content
                 row["updated_at"] = self._now()
                 self._write(rows)
-                logger.info(f"NoteRepository.update({entity_id}) → ok")
+                self.logger.info(f"update({entity_id}) → ok")
                 return self._hydrate(row)
-        logger.warning(f"NoteRepository.update({entity_id}) → not found")
+        self.logger.warning(f"update({entity_id}) → not found")
         return None
 
-    def get_all(self) -> list[dict]:
-        return [self._hydrate(r) for r in self._read()]
+    def get_all_for_user(self, user_id: str) -> list[dict]:
+        rows = [r for r in self._read() if r["user_id"] == user_id]
+        self.logger.info(f"get_all_for_user({user_id}) → {len(rows)} notes")
+        return [self._hydrate(r) for r in rows]
 
     def get_by_id(self, entity_id: str) -> dict | None:
         row = next((r for r in self._read() if r["id"] == entity_id), None)
         if not row:
-            logger.warning(f"NoteRepository.get_by_id({entity_id}) → not found")
+            self.logger.warning(f"get_by_id({entity_id}) → not found")
             return None
+        self.logger.info(f"get_by_id({entity_id}) → found")
         return self._hydrate(row)
 
     def _hydrate(self, note: dict) -> dict:
-        """Attach associated labels to a note dict before returning."""
         note["labels"] = self._note_labels.get_labels_for_note(note["id"], self._labels)
         return note
 
     def _on_delete(self, entity_id: str) -> None:
-        """Cascade: remove all note–label links when a note is deleted."""
         self._note_labels.remove_all_for_note(entity_id)
-        logger.info(f"Cascaded note_labels delete for note={entity_id}")
+        self.logger.info(f"cascade: removed note_labels for note={entity_id}")
 
 
 class LabelRepository(BaseRepository):
-    """Persistence for Label entities."""
-
     file_path = Path("data/labels.csv")
-    fields = ["id", "name"]
+    fields = ["id", "user_id", "name"]
 
     def __init__(self, note_label_repo: "NoteLabelRepository") -> None:
         self._note_labels = note_label_repo
 
-    def create(self, *, name: str) -> dict:  # type: ignore
-        label = {"id": self._new_id(), "name": name}
+    def create(self, *, user_id: str, name: str) -> dict:  # type: ignore
+        label = {"id": self._new_id(), "user_id": user_id, "name": name}
         rows = self._read()
         rows.append(label)
         self._write(rows)
-        logger.info(f"LabelRepository.create → id={label['id']} name={name}")
+        self.logger.info(f"create → id={label['id']} name='{name}' user_id='{user_id}'")
         return label
 
     def update(self, entity_id: str, *, name: str) -> dict | None:  # type: ignore
@@ -187,24 +205,25 @@ class LabelRepository(BaseRepository):
             if row["id"] == entity_id:
                 row["name"] = name
                 self._write(rows)
-                logger.info(f"LabelRepository.update({entity_id}) → ok")
+                self.logger.info(f"update({entity_id}) → name='{name}'")
                 return row
-        logger.warning(f"LabelRepository.update({entity_id}) → not found")
+        self.logger.warning(f"update({entity_id}) → not found")
         return None
 
+    def get_all_for_user(self, user_id: str) -> list[dict]:
+        rows = [r for r in self._read() if r["user_id"] == user_id]
+        self.logger.info(f"get_all_for_user({user_id}) → {len(rows)} labels")
+        return rows
+
     def _on_delete(self, entity_id: str) -> None:
-        """Cascade: remove all note–label links when a label is deleted."""
         self._note_labels.remove_all_for_label(entity_id)
-        logger.info(f"Cascaded note_labels delete for label={entity_id}")
+        self.logger.info(f"cascade: removed note_labels for label={entity_id}")
 
 
-class NoteLabelRepository:
+class NoteLabelRepository(LoggingMixin):
     """
-    Manages the many-to-many join table between notes and labels.
-
-    Does NOT inherit BaseRepository — the join table has no 'id' column
-    and its operations (add / remove / get_for_note) don't map onto the
-    standard create / update / delete interface.
+    Many-to-many join table. Does not inherit BaseRepository
+    (no id column, different interface). Inherits LoggingMixin directly.
     """
 
     file_path = Path("data/note_labels.csv")
@@ -230,21 +249,19 @@ class NoteLabelRepository:
         if not self.file_path.exists():
             with open(self.file_path, "w", newline="", encoding="utf-8") as f:
                 csv.DictWriter(f, fieldnames=self.fields).writeheader()
-            logger.info(f"Initialised: {self.file_path}")
+            self.logger.info(f"Initialised: {self.file_path}")
 
     def add(self, note_id: str, label_id: str) -> bool:
-        """Attach a label to a note. Returns False if already linked."""
         rows = self._read()
         if any(r["note_id"] == note_id and r["label_id"] == label_id for r in rows):
-            logger.warning(f"Association exists: note={note_id} label={label_id}")
+            self.logger.warning(f"add → already linked note={note_id} label={label_id}")
             return False
         rows.append({"note_id": note_id, "label_id": label_id})
         self._write(rows)
-        logger.info(f"Linked label={label_id} to note={note_id}")
+        self.logger.info(f"add → linked note={note_id} label={label_id}")
         return True
 
     def remove(self, note_id: str, label_id: str) -> bool:
-        """Detach a label from a note. Returns False if link didn't exist."""
         rows = self._read()
         new_rows = [
             r
@@ -252,42 +269,35 @@ class NoteLabelRepository:
             if not (r["note_id"] == note_id and r["label_id"] == label_id)
         ]
         if len(new_rows) == len(rows):
-            logger.warning(f"Association not found: note={note_id} label={label_id}")
+            self.logger.warning(f"remove → not found note={note_id} label={label_id}")
             return False
         self._write(new_rows)
-        logger.info(f"Unlinked label={label_id} from note={note_id}")
+        self.logger.info(f"remove → unlinked note={note_id} label={label_id}")
         return True
 
     def remove_all_for_note(self, note_id: str) -> None:
         self._write([r for r in self._read() if r["note_id"] != note_id])
+        self.logger.info(f"remove_all_for_note({note_id}) → done")
 
     def remove_all_for_label(self, label_id: str) -> None:
         self._write([r for r in self._read() if r["label_id"] != label_id])
+        self.logger.info(f"remove_all_for_label({label_id}) → done")
 
     def get_labels_for_note(
         self, note_id: str, label_repo: "LabelRepository"
     ) -> list[dict]:
-        """Return full label dicts for every label attached to a note."""
         linked_ids = {r["label_id"] for r in self._read() if r["note_id"] == note_id}
         return [r for r in label_repo._read() if r["id"] in linked_ids]
 
 
-class StorageManager:
+class StorageManager(LoggingMixin):
     """
-    Composes NoteRepository, LabelRepository, and NoteLabelRepository.
-
-    Routers call methods on `storage.notes`, `storage.labels`, and
-    `storage.note_labels` — they never import or instantiate repos
-    directly. This keeps the application layer completely decoupled from
-    the CSV implementation detail.
-
-    Dependency construction order (bottom-up):
-        1. NoteLabelRepository   — no dependencies
-        2. LabelRepository       — needs NoteLabelRepository (cascade)
-        3. NoteRepository        — needs both (cascade + hydration)
+    Composes all repositories into a single access point.
+    Inherits LoggingMixin for startup/shutdown logging.
     """
 
     def __init__(self) -> None:
+        self.users = UserRepository()
         self.note_labels = NoteLabelRepository()
         self.labels = LabelRepository(note_label_repo=self.note_labels)
         self.notes = NoteRepository(
@@ -296,16 +306,16 @@ class StorageManager:
         )
 
     def init_files(self) -> None:
-        """Ensure data/ directory and all CSV headers exist."""
         Path("data").mkdir(exist_ok=True)
+        self.users._init_file()
         self.note_labels._init_file()
         self.labels._init_file()
         self.notes._init_file()
+        self.logger.info("All storage files ready")
 
 
 storage = StorageManager()
 
 
 def init_storage() -> None:
-    """Called once at app startup (via FastAPI lifespan hook in main.py)."""
     storage.init_files()
