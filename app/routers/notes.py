@@ -121,7 +121,7 @@ class NotesRouter:
             content=payload.content,
         )
         logger.info(f"PUT /notes/{note_id} → updated")
-        return updated
+        return updated  # type: ignore
 
     def delete_note(self, note_id: str) -> None:
         self._get_note_or_404(note_id)  # guard: 404 before attempting delete

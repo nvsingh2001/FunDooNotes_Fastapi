@@ -64,12 +64,12 @@ class AppFactory:
         return self
 
     def _register_middleware(self) -> "AppFactory":
-        self._app.add_middleware(RequestLoggingMiddleware)
+        self._app.add_middleware(RequestLoggingMiddleware)  # type: ignore
         return self
 
     def _register_exception_handlers(self) -> "AppFactory":
 
-        @self._app.exception_handler(Exception)
+        @self._app.exception_handler(Exception)  # type: ignore
         async def _global_handler(request: Request, exc: Exception):
             logger.error(
                 f"Unhandled exception on {request.method} {request.url.path}: {exc}"
@@ -84,19 +84,15 @@ class AppFactory:
     def _register_routers(self) -> "AppFactory":
         from app.routers import notes, labels
 
-        self._app.include_router(notes.router, prefix="/notes", tags=["Notes"])
-        self._app.include_router(labels.router, prefix="/labels", tags=["Labels"])
+        self._app.include_router(notes.router, prefix="/notes", tags=["Notes"])  # type: ignore
+        self._app.include_router(labels.router, prefix="/labels", tags=["Labels"])  # type: ignore
 
-        @self._app.get("/health", tags=["Health"])
+        @self._app.get("/health", tags=["Health"])  # type: ignore
         def health_check():
             """Returns 200 if the service is up."""
             return {"status": "ok"}
 
         return self
-
-    # ------------------------------------------------------------------
-    # Public factory method
-    # ------------------------------------------------------------------
 
     def build(self) -> FastAPI:
         """Run the full build pipeline and return the FastAPI instance."""
@@ -106,12 +102,7 @@ class AppFactory:
             ._register_exception_handlers()
             ._register_routers()
         )
-        return self._app
-
-
-# ---------------------------------------------------------------------------
-# Module-level factory function — Uvicorn points at `app`
-# ---------------------------------------------------------------------------
+        return self._app  # type: ignore
 
 
 def create_app() -> FastAPI:

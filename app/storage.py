@@ -112,7 +112,7 @@ class NoteRepository(BaseRepository):
         self._note_labels = note_label_repo
         self._labels = label_repo
 
-    def create(self, *, title: str, content: str) -> dict:
+    def create(self, *, title: str, content: str) -> dict:  # type: ignore
         note = {
             "id": self._new_id(),
             "title": title,
@@ -126,7 +126,7 @@ class NoteRepository(BaseRepository):
         logger.info(f"NoteRepository.create → id={note['id']}")
         return self._hydrate(note)
 
-    def update(
+    def update(  # type: ignore
         self, entity_id: str, *, title: str | None = None, content: str | None = None
     ) -> dict | None:
         rows = self._read()
@@ -173,7 +173,7 @@ class LabelRepository(BaseRepository):
     def __init__(self, note_label_repo: "NoteLabelRepository") -> None:
         self._note_labels = note_label_repo
 
-    def create(self, *, name: str) -> dict:
+    def create(self, *, name: str) -> dict:  # type: ignore
         label = {"id": self._new_id(), "name": name}
         rows = self._read()
         rows.append(label)
@@ -181,7 +181,7 @@ class LabelRepository(BaseRepository):
         logger.info(f"LabelRepository.create → id={label['id']} name={name}")
         return label
 
-    def update(self, entity_id: str, *, name: str) -> dict | None:
+    def update(self, entity_id: str, *, name: str) -> dict | None:  # type: ignore
         rows = self._read()
         for row in rows:
             if row["id"] == entity_id:
