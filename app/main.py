@@ -8,6 +8,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from app.core.logger import LoggingMixin, get_logger
 from app.storage import init_storage
 
+
 logger = get_logger()
 
 

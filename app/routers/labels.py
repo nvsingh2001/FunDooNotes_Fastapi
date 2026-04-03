@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.core.auth import get_current_user
+from app.core.auth import security_service
 from app.core.logger import LoggingMixin
-from app.schemas import LabelCreate, LabelResponse, LabelUpdate, UserResponse
+from app.schemas.label import LabelCreate, LabelResponse, LabelUpdate
+from app.schemas.user import UserResponse
 from app.storage import StorageManager
 
 
@@ -95,7 +96,7 @@ class LabelsRouter(LoggingMixin):
     def create_label(
         self,
         payload: LabelCreate,
-        current_user: UserResponse = Depends(get_current_user),
+        current_user: UserResponse = Depends(security_service.get_current_user),
     ) -> dict:
         self._check_name_conflict(payload.name, user_id=current_user.id)
         label = self._storage.labels.create(user_id=current_user.id, name=payload.name)
@@ -103,14 +104,16 @@ class LabelsRouter(LoggingMixin):
         return label
 
     def get_all_labels(
-        self, current_user: UserResponse = Depends(get_current_user)
+        self, current_user: UserResponse = Depends(security_service.get_current_user)
     ) -> list[dict]:
         labels = self._storage.labels.get_all_for_user(current_user.id)
         self.logger.info(f"GET /labels/ → 200 count={len(labels)} user={current_user.id}")
         return labels
 
     def get_label(
-        self, label_id: str, current_user: UserResponse = Depends(get_current_user)
+        self,
+        label_id: str,
+        current_user: UserResponse = Depends(security_service.get_current_user),
     ) -> dict:
         label = self._get_label_or_404(label_id, current_user)
         self.logger.info(f"GET /labels/{label_id} → 200 user={current_user.id}")
@@ -120,7 +123,7 @@ class LabelsRouter(LoggingMixin):
         self,
         label_id: str,
         payload: LabelUpdate,
-        current_user: UserResponse = Depends(get_current_user),
+        current_user: UserResponse = Depends(security_service.get_current_user),
     ) -> dict:
         self._get_label_or_404(label_id, current_user)
         self._check_name_conflict(
@@ -131,7 +134,9 @@ class LabelsRouter(LoggingMixin):
         return updated  # type: ignore
 
     def delete_label(
-        self, label_id: str, current_user: UserResponse = Depends(get_current_user)
+        self,
+        label_id: str,
+        current_user: UserResponse = Depends(security_service.get_current_user),
     ) -> None:
         self._get_label_or_404(label_id, current_user)
         self._storage.labels.delete(label_id)

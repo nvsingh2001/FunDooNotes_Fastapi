@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.core.auth import get_current_user
+from app.core.auth import security_service
 from app.core.logger import LoggingMixin
-from app.schemas import NoteCreate, NoteResponse, NoteUpdate, UserResponse
+from app.schemas.note import NoteCreate, NoteResponse, NoteUpdate
+from app.schemas.user import UserResponse
 from app.storage import StorageManager
 
 
@@ -107,7 +108,9 @@ class NotesRouter(LoggingMixin):
         )
 
     def create_note(
-        self, payload: NoteCreate, current_user: UserResponse = Depends(get_current_user)
+        self,
+        payload: NoteCreate,
+        current_user: UserResponse = Depends(security_service.get_current_user),
     ) -> dict:
         note = self._storage.notes.create(
             user_id=current_user.id, title=payload.title, content=payload.content
@@ -116,14 +119,16 @@ class NotesRouter(LoggingMixin):
         return note
 
     def get_all_notes(
-        self, current_user: UserResponse = Depends(get_current_user)
+        self, current_user: UserResponse = Depends(security_service.get_current_user)
     ) -> list[dict]:
         notes = self._storage.notes.get_all_for_user(current_user.id)
         self.logger.info(f"GET /notes/ → 200 count={len(notes)} user={current_user.id}")
         return notes
 
     def get_note(
-        self, note_id: str, current_user: UserResponse = Depends(get_current_user)
+        self,
+        note_id: str,
+        current_user: UserResponse = Depends(security_service.get_current_user),
     ) -> dict:
         note = self._get_note_or_404(note_id, current_user)
         self.logger.info(f"GET /notes/{note_id} → 200 user={current_user.id}")
@@ -133,7 +138,7 @@ class NotesRouter(LoggingMixin):
         self,
         note_id: str,
         payload: NoteUpdate,
-        current_user: UserResponse = Depends(get_current_user),
+        current_user: UserResponse = Depends(security_service.get_current_user),
     ) -> dict:
         self._get_note_or_404(note_id, current_user)
         updated = self._storage.notes.update(
@@ -143,7 +148,9 @@ class NotesRouter(LoggingMixin):
         return updated  # type: ignore
 
     def delete_note(
-        self, note_id: str, current_user: UserResponse = Depends(get_current_user)
+        self,
+        note_id: str,
+        current_user: UserResponse = Depends(security_service.get_current_user),
     ) -> None:
         self._get_note_or_404(note_id, current_user)
         self._storage.notes.delete(note_id)
@@ -153,7 +160,7 @@ class NotesRouter(LoggingMixin):
         self,
         note_id: str,
         label_id: str,
-        current_user: UserResponse = Depends(get_current_user),
+        current_user: UserResponse = Depends(security_service.get_current_user),
     ) -> dict:
         self._get_note_or_404(note_id, current_user)
         self._get_label_or_404(label_id, current_user)
@@ -175,7 +182,7 @@ class NotesRouter(LoggingMixin):
         self,
         note_id: str,
         label_id: str,
-        current_user: UserResponse = Depends(get_current_user),
+        current_user: UserResponse = Depends(security_service.get_current_user),
     ) -> dict:
         self._get_note_or_404(note_id, current_user)
         # Ensure the label also belongs to the user, even for removal
