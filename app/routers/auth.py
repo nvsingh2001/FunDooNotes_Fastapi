@@ -3,13 +3,13 @@ from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 
-from app.auth import (
+from app.core.auth import (
     ACCESS_TOKEN_EXPIRE_MINUTES,
     create_access_token,
     get_password_hash,
     verify_password,
 )
-from app.logger import LoggingMixin
+from app.core.logger import LoggingMixin
 from app.schemas import Token, UserCreate, UserResponse
 from app.storage import StorageManager
 

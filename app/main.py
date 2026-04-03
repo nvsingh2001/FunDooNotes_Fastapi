@@ -5,7 +5,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.logger import LoggingMixin, get_logger
+from app.core.logger import LoggingMixin, get_logger
 from app.storage import init_storage
 
 logger = get_logger()
@@ -123,7 +123,7 @@ class AppFactory(LoggingMixin):
         return self
 
     def _register_routers(self) -> "AppFactory":
-        from app.routers import notes, labels, auth
+        from app.routers import notes, labels, auth  # type: ignore
 
         self._app.include_router(auth.router, prefix="/auth", tags=["Auth"])  # type: ignore
         self._app.include_router(notes.router, prefix="/notes", tags=["Notes"])  # type: ignore

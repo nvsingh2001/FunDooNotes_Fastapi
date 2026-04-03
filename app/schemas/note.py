@@ -1,73 +1,7 @@
 from typing import Optional
-
-from pydantic import BaseModel, Field, field_validator, EmailStr
-
-
-class BaseSchema(BaseModel):
-    """Root schema — shared Pydantic config inherited by all others."""
-
-    model_config = {
-        "from_attributes": True,
-        "str_strip_whitespace": True,
-        "str_min_length": 1,
-    }
-
-
-class LabelBase(BaseSchema):
-    name: str = Field(
-        ...,
-        min_length=1,
-        max_length=50,
-        description="Display name of the label.",
-        examples=["Work"],
-    )
-
-
-class LabelCreate(LabelBase):
-    """Request body for **POST /labels/**."""
-
-    model_config = {
-        **BaseSchema.model_config,
-        "json_schema_extra": {"example": {"name": "Work"}},
-    }
-
-
-class LabelUpdate(BaseSchema):
-    """Request body for **PUT /labels/{label_id}**."""
-
-    name: str = Field(
-        ...,
-        min_length=1,
-        max_length=50,
-        description="New name for the label.",
-        examples=["Personal"],
-    )
-
-    model_config = {
-        **BaseSchema.model_config,
-        "json_schema_extra": {"example": {"name": "Personal"}},
-    }
-
-
-class LabelResponse(LabelBase):
-    """Response schema for a single label."""
-
-    id: str = Field(
-        ...,
-        description="Server-assigned UUID.",
-        examples=["3fa85f64-5717-4562-b3fc-2c963f66afa6"],
-    )
-
-    model_config = {
-        **BaseSchema.model_config,
-        "json_schema_extra": {
-            "example": {
-                "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-                "name": "Work",
-            }
-        },
-    }
-
+from pydantic import Field, field_validator
+from .base import BaseSchema
+from .label import LabelResponse
 
 class NoteBase(BaseSchema):
     """Shared fields and validators for note schemas."""
@@ -194,25 +128,3 @@ class NoteResponse(NoteBase):
             }
         },
     }
-
-
-class UserBase(BaseSchema):
-    username: str = Field(..., min_length=3, max_length=50)
-    email: EmailStr
-
-
-class UserCreate(UserBase):
-    password: str = Field(..., min_length=8)
-
-
-class UserResponse(UserBase):
-    id: str
-
-
-class Token(BaseModel):
-    access_token: str
-    token_type: str
-
-
-class TokenData(BaseModel):
-    user_id: Optional[str] = None

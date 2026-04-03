@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.auth import get_current_user
-from app.logger import LoggingMixin
+from app.core.auth import get_current_user
+from app.core.logger import LoggingMixin
 from app.schemas import LabelCreate, LabelResponse, LabelUpdate, UserResponse
 from app.storage import StorageManager
 
