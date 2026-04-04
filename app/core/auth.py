@@ -52,7 +52,9 @@ class SecurityService:
         encoded_jwt = jwt.encode(to_encode, self.secret_key, algorithm=self.algorithm)
         return encoded_jwt
 
-    async def get_current_user(self, token: str = Depends(OAuth2PasswordBearer(tokenUrl="auth/login"))) -> UserResponse:
+    async def get_current_user(
+        self, token: str = Depends(OAuth2PasswordBearer(tokenUrl="auth/login"))
+    ) -> UserResponse:
         """
         Dependency to retrieve the currently authenticated user.
         Used as a FastAPI dependency.
@@ -64,14 +66,14 @@ class SecurityService:
         )
         try:
             payload = jwt.decode(token, self.secret_key, algorithms=[self.algorithm])
-            user_id: str = payload.get("sub")
+            user_id: str = payload.get("sub")  # type: ignore
             if user_id is None:
                 raise credentials_exception
             token_data = TokenData(user_id=user_id)
         except JWTError:
             raise credentials_exception
 
-        user = storage.users.get_by_id(token_data.user_id)
+        user = storage.users.get_by_id(token_data.user_id)  # type: ignore
         if user is None:
             raise credentials_exception
         return UserResponse(**user)
