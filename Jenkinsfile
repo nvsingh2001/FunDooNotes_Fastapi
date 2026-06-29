@@ -12,8 +12,8 @@ pipeline {
         stage('Install Dependencies') {
             steps {
                 sh '''
-                cd /home/ubuntu/FunDooNotes_Fastapi
-                source .venv/bin/activate
+                python3 -m venv .venv
+                . .venv/bin/activate
                 pip install -r requirements.txt
                 '''
             }
@@ -22,21 +22,8 @@ pipeline {
         stage('Run Tests') {
             steps {
                 sh '''
-                cd /home/ubuntu/FunDooNotes_Fastapi
-                source .venv/bin/activate
+                . .venv/bin/activate
                 pytest
-                '''
-            }
-        }
-
-        stage('Deploy') {
-            steps {
-                sh '''
-                cd /home/ubuntu/FunDooNotes_Fastapi
-                git pull origin main
-                source .venv/bin/activate
-                pip install -r requirements.txt
-                sudo systemctl restart fastapi
                 '''
             }
         }
