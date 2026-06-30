@@ -22,7 +22,7 @@ pipeline {
                 rsync -av --delete \
                     --exclude='.git' \
                     --exclude='.venv' \
-                    ./ /home/ubuntu/FunDooNotes_Fastapi
+                    ./ /opt/FunDooNotes_Fastapi/
                 '''
             }
         }
@@ -30,7 +30,7 @@ pipeline {
         stage('Install Production Dependencies') {
             steps {
                 sh '''
-                cd /home/ubuntu/FunDooNotes_Fastapi
+                cd /opt/FunDooNotes_Fastapi/
                 . .venv/bin/activate
 
                 pip install -r requirements.txt
