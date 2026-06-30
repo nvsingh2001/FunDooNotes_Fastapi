@@ -1,11 +1,10 @@
-from pathlib import Path
 from .base import BaseRepository
+from app.repositories.strategy import StorageStrategy
 
 class LabelRepository(BaseRepository):
-    file_path = Path("data/labels.csv")
-    fields = ["id", "user_id", "name"]
 
-    def __init__(self, note_label_repo: "NoteLabelRepository") -> None:
+    def __init__(self, strategy: StorageStrategy, note_label_repo: "NoteLabelRepository") -> None:
+        super().__init__(strategy)
         self._note_labels = note_label_repo
 
     def create(self, *, user_id: str, name: str) -> dict:  # type: ignore

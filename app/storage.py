@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from app.core.logger import LoggingMixin
+from app.repositories.strategy import CSVStorageStrategy
 from app.repositories.user import UserRepository
 from app.repositories.note import NoteRepository
 from app.repositories.label import LabelRepository
@@ -14,10 +15,17 @@ class StorageManager(LoggingMixin):
     """
 
     def __init__(self) -> None:
-        self.users = UserRepository()
-        self.note_labels = NoteLabelRepository()
-        self.labels = LabelRepository(note_label_repo=self.note_labels)
+        data_dir = Path("data")
+        user_strategy = CSVStorageStrategy(data_dir / "users.csv", ["id", "username", "email", "hashed_password"])
+        note_label_strategy = CSVStorageStrategy(data_dir / "note_labels.csv", ["note_id", "label_id"])
+        label_strategy = CSVStorageStrategy(data_dir / "labels.csv", ["id", "user_id", "name"])
+        note_strategy = CSVStorageStrategy(data_dir / "notes.csv", ["id", "user_id", "title", "content", "created_at", "updated_at"])
+
+        self.users = UserRepository(user_strategy)
+        self.note_labels = NoteLabelRepository(note_label_strategy)
+        self.labels = LabelRepository(label_strategy, note_label_repo=self.note_labels)
         self.notes = NoteRepository(
+            note_strategy,
             note_label_repo=self.note_labels,
             label_repo=self.labels,
         )

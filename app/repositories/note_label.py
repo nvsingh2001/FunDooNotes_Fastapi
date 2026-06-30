@@ -1,7 +1,5 @@
-import csv
-from pathlib import Path
-from filelock import FileLock
 from app.core.logger import LoggingMixin
+from app.repositories.strategy import StorageStrategy
 
 class NoteLabelRepository(LoggingMixin):
     """
@@ -9,30 +7,18 @@ class NoteLabelRepository(LoggingMixin):
     (no id column, different interface). Inherits LoggingMixin directly.
     """
 
-    file_path = Path("data/note_labels.csv")
-    fields = ["note_id", "label_id"]
-
-    def _lock_path(self) -> str:
-        return str(self.file_path) + ".lock"
+    def __init__(self, strategy: StorageStrategy) -> None:
+        self._strategy = strategy
 
     def _read(self) -> list[dict]:
-        if not self.file_path.exists():
-            return []
-        with open(self.file_path, newline="", encoding="utf-8") as f:
-            return list(csv.DictReader(f))
+        return self._strategy.read()
 
     def _write(self, rows: list[dict]) -> None:
-        with FileLock(self._lock_path()):
-            with open(self.file_path, "w", newline="", encoding="utf-8") as f:
-                writer = csv.DictWriter(f, fieldnames=self.fields)
-                writer.writeheader()
-                writer.writerows(rows)
+        self._strategy.write(rows)
 
     def _init_file(self) -> None:
-        if not self.file_path.exists():
-            with open(self.file_path, "w", newline="", encoding="utf-8") as f:
-                csv.DictWriter(f, fieldnames=self.fields).writeheader()
-            self.logger.info(f"Initialised: {self.file_path}")
+        self._strategy.init_file()
+        self.logger.info("Storage strategy initialised")
 
     def add(self, note_id: str, label_id: str) -> bool:
         rows = self._read()

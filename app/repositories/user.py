@@ -1,10 +1,7 @@
-from pathlib import Path
 from .base import BaseRepository
 
 
 class UserRepository(BaseRepository):
-    file_path = Path("data/users.csv")
-    fields = ["id", "username", "email", "hashed_password"]
 
     def create(self, *, username: str, email: str, hashed_password: str) -> dict:  # type: ignore
         user = {

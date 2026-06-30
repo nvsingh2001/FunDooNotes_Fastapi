@@ -1,22 +1,20 @@
-import csv
 import uuid
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
-from pathlib import Path
-
-from filelock import FileLock
 
 from app.core.logger import LoggingMixin
+from app.repositories.strategy import StorageStrategy
 
 
 class BaseRepository(ABC, LoggingMixin):
     """
-    Encapsulates all CSV file I/O for a single entity.
+    Encapsulates all data access for a single entity, decoupled from 
+    underlying storage details via Dependency Injection.
     Inherits LoggingMixin so every subclass gets self.logger for free.
     """
 
-    file_path: Path
-    fields: list[str]
+    def __init__(self, strategy: StorageStrategy) -> None:
+        self._strategy = strategy
 
     def _now(self) -> str:
         return datetime.now(timezone.utc).isoformat()
@@ -24,36 +22,15 @@ class BaseRepository(ABC, LoggingMixin):
     def _new_id(self) -> str:
         return str(uuid.uuid4())
 
-    def _lock_path(self) -> str:
-        return str(self.file_path) + ".lock"
-
     def _read(self) -> list[dict]:
-        if not self.file_path.exists():
-            return []
-        with open(self.file_path, newline="", encoding="utf-8") as f:
-            return list(csv.DictReader(f))
+        return self._strategy.read()
 
     def _write(self, rows: list[dict]) -> None:
-        with FileLock(self._lock_path()):
-            with open(self.file_path, "w", newline="", encoding="utf-8") as f:
-                writer = csv.DictWriter(f, fieldnames=self.fields)
-                writer.writeheader()
-                writer.writerows(rows)
+        self._strategy.write(rows)
 
     def _init_file(self) -> None:
-        # For this version, we reset data if the headers don't match or file doesn't exist
-        needs_init = not self.file_path.exists()
-        if not needs_init:
-            with open(self.file_path, "r", newline="", encoding="utf-8") as f:
-                reader = csv.reader(f)
-                header = next(reader, None)
-                if header != self.fields:
-                    needs_init = True
-
-        if needs_init:
-            with open(self.file_path, "w", newline="", encoding="utf-8") as f:
-                csv.DictWriter(f, fieldnames=self.fields).writeheader()
-            self.logger.info(f"Initialised (reset): {self.file_path}")
+        self._strategy.init_file()
+        self.logger.info("Storage strategy initialised")
 
     def get_all(self) -> list[dict]:
         rows = self._read()
