@@ -1,47 +1,45 @@
 pipeline {
     agent any
 
+    environment {
+        IMAGE_NAME = "fundoonotes"
+        IMAGE_TAG = "latest"
+        CONTAINER_NAME = "fundoonotes"
+    }
+
     stages {
+
         stage('Checkout') {
             steps {
                 checkout scm
             }
         }
-        stage('Install Dependencies') {
+
+        stage('Build Docker Image') {
             steps {
                 sh '''
-                python3 -m venv .venv
-                . .venv/bin/activate
-                pip install -r requirements.txt
-                '''
-            }
-        }
-        stage('Deploy') {
-            steps {
-                sh '''
-                rsync -av --delete \
-                    --exclude='.git' \
-                    --exclude='.venv' \
-                    ./ /opt/FunDooNotes_Fastapi/
+                docker build --pull -t ${IMAGE_NAME}:${IMAGE_TAG} .
                 '''
             }
         }
 
-        stage('Install Production Dependencies') {
+        stage('Stop Existing Container') {
             steps {
                 sh '''
-                cd /opt/FunDooNotes_Fastapi/
-                . .venv/bin/activate
-
-                pip install -r requirements.txt
+                docker stop ${CONTAINER_NAME} || true
+                docker rm ${CONTAINER_NAME} || true
                 '''
             }
         }
 
-        stage('Restart Service') {
+        stage('Run Container') {
             steps {
                 sh '''
-                sudo systemctl restart fundoonotes
+                docker run -d \
+                  --name ${CONTAINER_NAME} \
+                  --restart unless-stopped \
+                  -p 8000:8000 \
+                  ${IMAGE_NAME}:${IMAGE_TAG}
                 '''
             }
         }
